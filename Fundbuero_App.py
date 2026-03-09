@@ -1,108 +1,111 @@
-
 import streamlit as st
-import tensorflow as tf
-import numpy as np
 from supabase import create_client
+import requests
 from datetime import datetime
 import uuid
 
-# -------------------------------------------------
-# Supabase Verbindung
-# -------------------------------------------------
+# ==========================
+# SUPABASE VERBINDUNG
+# ==========================
+
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# -------------------------------------------------
-# Modell laden
-# -------------------------------------------------
-MODEL_PATH = "keras_model.h5"
-LABELS_PATH = "labels.txt"
+BUCKET_NAME = "fundbuero"
 
-@st.cache_resource
-def load_model():
-    return tf.keras.models.load_model(MODEL_PATH, compile=False)
+# ==========================
+# TEACHABLE MACHINE
+# ==========================
 
-model = load_model()
+MODEL_URL = st.secrets["MODEL_URL"]
 
-def load_labels():
-    with open(LABELS_PATH, "r") as f:
-        return [line.strip() for line in f.readlines()]
+def classify_image(image_file):
 
-labels = load_labels()
+    try:
+        response = requests.post(
+            MODEL_URL,
+            files={"image": image_file}
+        )
 
-# -------------------------------------------------
-# Bildvorverarbeitung
-# -------------------------------------------------
-def preprocess_image(uploaded_file):
-    img = tf.keras.utils.load_img(uploaded_file, target_size=(224, 224))
-    img_array = tf.keras.utils.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = (img_array / 127.5) - 1
-    return img_array
+        result = response.json()
 
-# -------------------------------------------------
-# UI
-# -------------------------------------------------
-st.title("📦 Digitales Fundbüro")
+        return result["class"]
 
-uploaded_file = st.file_uploader("Foto hochladen", type=["jpg", "jpeg", "png"])
+    except:
+        return "Unbekannt"
+
+
+# ==========================
+# STREAMLIT UI
+# ==========================
+
+st.title("🏫 Schul-Fundbüro")
+
+st.write("Lade ein gefundenes Objekt hoch.")
+
+uploaded_file = st.file_uploader(
+    "Foto des Fundstücks",
+    type=["jpg", "jpeg", "png"]
+)
+
 beschreibung = st.text_input("Beschreibung")
 fundort = st.text_input("Fundort")
 
-if uploaded_file is not None:
-    st.image(uploaded_file)
+# ==========================
+# UPLOAD BUTTON
+# ==========================
 
-    processed_image = preprocess_image(uploaded_file)
-    prediction = model.predict(processed_image)
+if st.button("Fundstück speichern"):
 
-    predicted_index = np.argmax(prediction)
-    predicted_label = labels[predicted_index]
-    confidence = float(np.max(prediction))
+    if uploaded_file is None:
+        st.error("Bitte ein Bild hochladen.")
+    else:
 
-    st.success(f"Erkannt: {predicted_label} ({confidence:.2f})")
+        # Kategorie über KI bestimmen
+        kategorie = classify_image(uploaded_file)
 
-    if st.button("Fund speichern"):
+        # Dateiname erzeugen
+        filename = f"{uuid.uuid4()}.jpg"
 
-        # -----------------------------------------
-        # Bild in Supabase Storage speichern
-        # -----------------------------------------
-        file_name = f"{uuid.uuid4()}.jpg"
-
-        supabase.storage.from_("Fundbuero").upload(
-            file_name,
-            uploaded_file.getvalue(),
-            {"content-type": "image/jpeg"}
+        # Bild zu Supabase hochladen
+        supabase.storage.from_(BUCKET_NAME).upload(
+            filename,
+            uploaded_file.getvalue()
         )
 
-        public_url = supabase.storage.from_("Fundbuero").get_public_url(file_name)
+        # Öffentliche URL erzeugen
+        image_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{filename}"
 
-        # -----------------------------------------
-        # Datenbankeintrag erstellen
-        # -----------------------------------------
-        supabase.table("Fundbuero").insert({
-            "kategorie": predicted_label,
+        # In Datenbank speichern
+        data = {
+            "kategorie": kategorie,
             "beschreibung": beschreibung,
             "fundort": fundort,
-            "bild_url": public_url,
+            "bild_url": image_url,
             "status": "Offen"
-        }).execute()
+        }
 
-        st.success("Fund gespeichert!")
+        supabase.table("fundbuero").insert(data).execute()
 
-# -------------------------------------------------
-# Anzeige aller Funde
-# -------------------------------------------------
-st.subheader("📋 Aktuelle Fundstücke")
+        st.success("Fundstück gespeichert!")
 
-response = supabase.table("Fundbuero").select("*").execute()
-items = response.data
+# ==========================
+# FUNDSTÜCKE ANZEIGEN
+# ==========================
 
-for item in items:
+st.header("Gefundene Gegenstände")
+
+response = supabase.table("fundbuero").select("*").order("created_at", desc=True).execute()
+
+for item in response.data:
+
     st.image(item["bild_url"], width=200)
-    st.write(f"**Kategorie:** {item['kategorie']}")
-    st.write(f"Beschreibung: {item['beschreibung']}")
-    st.write(f"Fundort: {item['fundort']}")
-    st.write(f"Status: {item['status']}")
-    st.write("---")
+
+    st.write("Kategorie:", item["kategorie"])
+    st.write("Beschreibung:", item["beschreibung"])
+    st.write("Fundort:", item["fundort"])
+    st.write("Status:", item["status"])
+
+    st.markdown("---")
