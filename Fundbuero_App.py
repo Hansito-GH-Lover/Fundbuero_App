@@ -70,13 +70,13 @@ if uploaded_file is not None:
         # -----------------------------------------
         file_name = f"{uuid.uuid4()}.jpg"
 
-        supabase.storage.from_("fundbuero").upload(
+        supabase.storage.from_("Fundbuero").upload(
             file_name,
             uploaded_file.getvalue(),
             {"content-type": "image/jpeg"}
         )
 
-        public_url = supabase.storage.from_("fundbuero").get_public_url(file_name)
+        public_url = supabase.storage.from_("Fundbuero").get_public_url(file_name)
 
         # -----------------------------------------
         # Datenbankeintrag erstellen
@@ -96,7 +96,7 @@ if uploaded_file is not None:
 # -------------------------------------------------
 st.subheader("📋 Aktuelle Fundstücke")
 
-response = supabase.table("fundstuecke").select("*").execute()
+response = supabase.table("Fundbuero").select("*").execute()
 items = response.data
 
 for item in items:
