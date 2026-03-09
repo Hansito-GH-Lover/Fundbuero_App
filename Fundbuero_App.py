@@ -81,7 +81,7 @@ if uploaded_file is not None:
         # -----------------------------------------
         # Datenbankeintrag erstellen
         # -----------------------------------------
-        supabase.table("fundstuecke").insert({
+        supabase.table("Fundbuero").insert({
             "kategorie": predicted_label,
             "beschreibung": beschreibung,
             "fundort": fundort,
